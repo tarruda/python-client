@@ -1,7 +1,7 @@
 import msgpack
 import traceback
 from collections import deque
-from threading import Condition, Lock
+from pyuv.thread import Condition, Mutex
 from time import time
 from mixins import mixins
 from util import VimError
@@ -40,25 +40,11 @@ class Client(object):
         # The 'vim' object may be accessed by multiple threads if only one
         # thread is calling `next_event`. It may be possible to have many
         # threads calling `next_event` but it's not guaranteed
-        #
-        # These are the constructs used to synchronize access:
-        #
-        # - request_mutex: mutual exclusion on the `msgpack_rpc_request` method
-        # - stream_mutex: mutual exlusion on the stream. It must be acquired
-        #   by both `msgpack_rpc_request` and `next_event`.
-        # - switcher: Helper condition variable used to pass `stream_mutex` to
-        #   the thread calling `msgpack_rpc_request` without busy looping
-        # 
-        # To ensure `msgpack_rpc_request` calls won't block waiting for
-        # `next_event` calls from another thread, `stream_mutex` is also
-        # wrapped into a Condition so a `next_event` call can temporarily let
-        # other threads have mutual exclusion on the stream.
-        # 
-        # The `switcher` condition is to avoid a busy loop in the thread that
-        # interrupts the stream
-        self.request_mutex = Lock()
-        self.stream_mutex = Condition(Lock())
-        self.switcher = Condition(Lock())
+        self.request_mutex = Mutex()
+        self.stream_mutex = Mutex()
+        self.stream_cond = Condition(self.stream_mutex)
+        self.switch_mutex = Mutex()
+        self.switch_cond = Condition(self.switch_mutex)
 
     def pop_events(self, max_index=None):
         if max_index is None:
@@ -91,16 +77,16 @@ class Client(object):
         Sends a msgpack-rpc request to Neovim and returns the response
         """
         try:
-            self.request_mutex.acquire()
-            while not self.stream_mutex.acquire(False):
+            self.request_mutex.lock()
+            while not self.stream_mutex.trylock():
                 # Another thread is currently blocking on a 'next_event' call,
                 # we need to interrupt it and try to acquire `stream_mutex`
                 # ourselves, or else we would have to wait until an event is
                 # received
-                self.switcher.acquire()
+                self.switch_mutex.lock()
                 self._stream.interrupt()
-                self.switcher.wait()
-                self.switcher.release()
+                self.switch_cond.wait(self.switch_mutex)
+                self.switch_mutex.unlock()
                 # At this point the thread calling `next_event` is waiting on
                 # `stream_mutex`, so we can probably acquire it in the next
                 # iteration.
@@ -122,16 +108,17 @@ class Client(object):
             return message
         finally:
             # Let any interrupted threads continue reading events
-            self.stream_mutex.notify_all()
-            self.stream_mutex.release()
+            self.stream_cond.broadcast()
+            self.stream_mutex.unlock()
             # Allow other threads enter this function
-            self.request_mutex.release()
+            self.request_mutex.unlock()
 
     def next_event(self, timeout=None):
         """
         Returns the next server event
         """
-        with self.stream_mutex:
+        try:
+            self.stream_mutex.lock()
             while True:
                 if len(self.pending_events):
                     return self.pending_events.popleft()
@@ -139,10 +126,10 @@ class Client(object):
                 if not message:
                     # If interrupted by a `msgpack_rpc_request` call from
                     # another thread, wait for a signal and try again
-                    self.switcher.acquire()
-                    self.switcher.notify()
-                    self.switcher.release()
-                    self.stream_mutex.wait()
+                    self.switch_mutex.lock()
+                    self.switch_cond.signal()
+                    self.switch_mutex.unlock()
+                    self.stream_cond.wait(self.stream_mutex)
                     continue
                 # The message type must be 2, which is the msgpack-rpc
                 # notification type
@@ -153,6 +140,8 @@ class Client(object):
                 assert not message or message[0] == 2
                 if message:
                     return message[1:]
+        finally:
+            self.stream_mutex.unlock()
 
     def expect(self, event_type, timeout=None, predicate=lambda e: True):
         """
