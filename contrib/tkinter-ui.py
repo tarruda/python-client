@@ -26,11 +26,17 @@ class NvimTkUI(object):
         # TODO: this should change nvim visual range
 
     def on_nvim_event(self, arg):
-        event = self.nvim_events.get(block=False)
-        event_type = event[0][7:]
-        event_arg = event[1]
-        handler = getattr(self, 'on_nvim_' + event_type)
-        handler(event_arg)
+        def handle(event):
+            event_type = event[0][7:]
+            event_arg = event[1]
+            handler = getattr(self, 'on_nvim_' + event_type)
+            handler(event_arg)
+        ev = self.nvim_events.get(block=False)
+        if len(ev) and isinstance(ev[0], basestring):
+            handle(ev)
+        else:
+            for e in ev:
+                handle(e)
 
     def on_nvim_exit(self, arg):
         self.root.destroy()
@@ -168,13 +174,28 @@ class NvimTkUI(object):
         def get_nvim_events(queue, vim, root):
             # Send the screen to ourselves
             vim.request_screen()
+            buffered = None
+            event = None
             while True:
                 try:
-                    queue.put(vim.next_event())
+                    event = vim.next_event()
                 except IOError:
-                    root.event_generate('<<nvim_exit>>', when='head')
+                    root.event_generate('<<nvim_exit>>', when='tail')
                     break
-                root.event_generate('<<nvim>>', when='tail')
+                event_type = event[0]
+                if event_type == 'redraw:start':
+                    buffered = []
+                elif event_type == 'redraw:end':
+                    queue.put(buffered)
+                    buffered = None
+                    root.event_generate('<<nvim>>', when='tail')
+                else:
+                    if buffered is None:
+                        # handle non-buffered events
+                        queue.put(event)
+                        root.event_generate('<<nvim>>', when='tail')
+                    else:
+                        buffered.append(event)
         # Setup the root window
         self.root = Tk()
         self.root.bind('<<nvim>>', self.on_nvim_event.__get__(self, NvimTkUI))
@@ -186,6 +207,8 @@ class NvimTkUI(object):
         self.vim = neovim.connect(self.address)
         # Subscribe to all redraw events
         # self.vim.subscribe('redraw:tabs')
+        self.vim.subscribe('redraw:start')
+        self.vim.subscribe('redraw:end')
         self.vim.subscribe('redraw:insert_line')
         self.vim.subscribe('redraw:delete_line')
         self.vim.subscribe('redraw:win_end')
