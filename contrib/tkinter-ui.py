@@ -5,7 +5,7 @@ import sys, neovim, pprint
 from Tkinter import *
 import tkFont
 from threading import Thread
-from Queue import Queue
+from collections import deque
 # import cProfile, pstats, StringIO
 
 
@@ -19,7 +19,7 @@ class NvimTkUI(object):
         # windows_id -> text widget map
         self.windows = None
         # pending nvim events
-        self.nvim_events = Queue(maxsize=1)
+        self.nvim_events = deque()
 
     def on_tk_select(self, arg):
         arg.widget.tag_remove('sel', '1.0', 'end')
@@ -27,12 +27,13 @@ class NvimTkUI(object):
 
     def on_nvim_event(self, arg):
         def handle(event):
-            event_type = event[0][7:]
-            event_arg = event[1]
+            event_type = event.name[7:]
+            event_arg = event.arg
             handler = getattr(self, 'on_nvim_' + event_type)
             handler(event_arg)
-        ev = self.nvim_events.get(block=False)
-        if len(ev) and isinstance(ev[0], basestring):
+
+        ev = self.nvim_events.popleft()
+        if hasattr(ev, 'name'):
             handle(ev)
         else:
             for e in ev:
@@ -53,6 +54,7 @@ class NvimTkUI(object):
                 widget = Text(parent, width=node['width'],
                               height=node['height'], state='normal',
                               font=self.font, exportselection=False,
+                              fg=self.fg_color, bg=self.bg_color,
                               wrap='none', undo=False)
                 setattr(widget, 'added_tags', {})
                 # fill the widget one linefeed per row to simplify updating
@@ -81,12 +83,10 @@ class NvimTkUI(object):
         self.toplevel.pack()
 
     def on_nvim_foreground_color(self, arg):
-        for widget in self.windows.values(): 
-            widget['fg'] = arg['color']
+        self.fg_color = arg['color']
 
     def on_nvim_background_color(self, arg):
-        for widget in self.windows.values(): 
-            widget['bg'] = arg['color']
+        self.bg_color = arg['color']
 
     def on_nvim_insert_line(self, arg):
         widget = self.windows[arg['window_id']]
@@ -175,27 +175,26 @@ class NvimTkUI(object):
             # Send the screen to ourselves
             vim.request_screen()
             buffered = None
-            event = None
             while True:
                 try:
-                    event = vim.next_event()
+                    message = vim.next_message()
                 except IOError:
                     root.event_generate('<<nvim_exit>>', when='tail')
                     break
-                event_type = event[0]
+                event_type = message.name
                 if event_type == 'redraw:start':
                     buffered = []
                 elif event_type == 'redraw:end':
-                    queue.put(buffered)
+                    queue.append(buffered)
                     buffered = None
                     root.event_generate('<<nvim>>', when='tail')
                 else:
                     if buffered is None:
                         # handle non-buffered events
-                        queue.put(event)
+                        queue.append(message)
                         root.event_generate('<<nvim>>', when='tail')
                     else:
-                        buffered.append(event)
+                        buffered.append(message)
         # Setup the root window
         self.root = Tk()
         self.root.bind('<<nvim>>', self.on_nvim_event.__get__(self, NvimTkUI))
@@ -243,5 +242,5 @@ except IOError:
 # pr.disable()
 # s = StringIO.StringIO()
 # ps = pstats.Stats(pr, stream=s)
-# ps.strip_dirs().sort_stats('cumtime').print_stats(10)
+# ps.strip_dirs().sort_stats('tottime').print_stats(10)
 # print s.getvalue()
