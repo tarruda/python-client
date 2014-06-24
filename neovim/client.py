@@ -1,11 +1,11 @@
-import msgpack
-import traceback
+import msgpack, logging 
 from collections import deque
 from threading import Condition, Lock
-from time import time
 from mixins import mixins
 from util import VimError
 
+logger = logging.getLogger(__name__)
+debug, warn = (logger.debug, logger.warn,)
 
 class Promise(object):
     def __init__(self, client, request_id, expected_type=None):
@@ -27,6 +27,7 @@ class Promise(object):
                 if interrupted:
                     with client.interrupt_lock:
                         pass
+                client.invoke_message_cb()
                 with client.stream_lock:
                     if self.message:
                         return process_response(self.message)
@@ -38,8 +39,8 @@ class Promise(object):
 class Message(object):
     def __init__(self, client, name=None, arg=None, result=None, error=None,
                  request_id=None, response_id=None, ):
-        def reply(value, is_error=False):
-            if is_error:
+        def reply(value, error=False):
+            if error:
                 resp = msgpack.packb([1, request_id, value, None])
             else:
                 resp = msgpack.packb([1, request_id, None, value])
@@ -114,6 +115,8 @@ class Client(object):
         self.vim = None
         self.stream_lock = FifoLock()
         self.interrupt_lock = Lock()
+        self.message_cb = None
+        self.loop_running = False
 
     def unpack_message(self, timeout=None):
         """
@@ -122,7 +125,9 @@ class Client(object):
         """
         while True:
             try:
+                debug('waiting for message...')
                 msg = self.unpacker.next()
+                debug('received message: %s', msg)
                 name = arg = error = result = request_id = response_id = None
                 msg_type = msg[0]
                 if msg_type == 0:
@@ -142,11 +147,13 @@ class Client(object):
                                error=error, request_id=request_id,
                                response_id=response_id)
             except StopIteration:
+                debug('unpacker needs more data...')
                 chunk = self.stream.read(timeout)
                 if not chunk:
                     if chunk == False:
                         raise TimeoutError()
                     return
+                debug('feeding data to the unpacker')
                 self.unpacker.feed(chunk)
 
     def queue_message(self, timeout=None):
@@ -188,10 +195,35 @@ class Client(object):
             if interrupted:
                 with self.interrupt_lock:
                     pass
+            self.invoke_message_cb()
             with self.stream_lock:
                 if self.pending_messages:
                     return self.pending_messages.popleft()
                 interrupted = self.queue_message(timeout)
+
+    def invoke_message_cb(self):
+        cb = self.message_cb
+        debug('registered callback: %s', self)
+        if cb:
+            try:
+                # If there's a callback registered for messages, invoke it
+                # immediately
+                cb(self.pending_messages.popleft())
+            except IndexError:
+                pass
+
+    def message_loop(self, message_cb):
+        try:
+            assert not self.loop_running
+            debug('starting message loop')
+            self.message_cb = message_cb
+            self.loop_running = True
+            while True:
+                self.next_message()
+        finally:
+            warn('exiting message loop')
+            self.message_cb = None
+            self.loop_running = False
 
     def push_message(self, name, arg):
         """
@@ -219,6 +251,8 @@ class Client(object):
         classes = {'vim': type('Vim', (), {})}
         setattr(classes['vim'], 'next_message',
                 lambda s, *args, **kwargs: self.next_message(*args, **kwargs))
+        setattr(classes['vim'], 'message_loop',
+                lambda s, *args, **kwargs: self.message_loop(*args, **kwargs))
         setattr(classes['vim'], 'push_message',
                 lambda s, *args, **kwargs: self.push_message(*args, **kwargs))
         # Build classes for manipulating the remote structures, assigning to a
@@ -246,7 +280,7 @@ class Client(object):
         # Create the 'vim object', which is a singleton of the 'Vim' class
         self.vim = classes['vim']()
         # Initialize with some useful attributes
-        classes['vim'].initialize(self.vim, classes, channel_id, VimError)
+        classes['vim'].initialize(self.vim, classes, channel_id)
         # Add attributes for each other class
         for name, klass in classes.items():
             if name != 'vim':
