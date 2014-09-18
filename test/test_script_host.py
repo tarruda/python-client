@@ -13,10 +13,10 @@ def host_setup():
         'let pyhost_id = ' +
         'rpcstart("python", ["-c", "import neovim; neovim.start_host()"])')
     ok(vim.eval('g:pyhost_id'))
-    # Use rpc_request to wait for the host setup(rpc_spawn will return a channel
-    # id but only after a while the channel will register handlers for python_*
-    # methods)
-    ok(vim.eval('rpcrequest(g:pyhost_id, "python_eval", "10")') == 10)
+    # Use rpc_request to wait for the host setup(rpc_spawn will return a
+    # channel id but only after a while the channel will register handlers for
+    # python_* methods)
+    ok(vim.eval('rpcrequest(g:pyhost_id, "python_eval", "10 + 5")') == 15)
     # Verify the feature
     ok(vim.eval('has("python")'))
     # Import the vim module

@@ -6,6 +6,8 @@ debug, warn = (logger.debug, logger.warn,)
 class MsgpackStream(object):
     def __init__(self, stream):
         def default(obj):
+            if callable(obj):
+                return msgpack.ExtType(self.vim.api_metadata['types']['Function']['id'], msgpack.packb(obj.__name__, use_bin_type=True))
             return obj._handle
 
         def ext_hook(code, data):
@@ -15,6 +17,7 @@ class MsgpackStream(object):
             return rv
 
         self.types = None
+        self.type_codes = None
         self.vim = None
         self.packer = msgpack.Packer(use_bin_type=True, default=default)
         self.unpacker = msgpack.Unpacker(ext_hook=ext_hook)
@@ -24,8 +27,12 @@ class MsgpackStream(object):
     def configure(self, vim):
         self.vim = vim
         self.types = {}
+        self.type_codes = {}
         for name, info in vim.api_metadata['types'].items():
-            self.types[info['id']] = getattr(vim, name)
+            if hasattr(vim, name):
+                kls = getattr(vim, name)
+                self.types[info['id']] = kls
+                self.type_codes[kls] = info['id']
 
     def interrupt(self):
         self.stream.interrupt()

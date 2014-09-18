@@ -97,7 +97,6 @@ class PluginHost(object):
     def install_plugins(self):
         self.discover_plugins()
         vim = self.vim
-        features = vim.api_metadata['features']
         registered = set()
         for plugin_class in self.discovered_plugins:
             cls_name = plugin_class.__name__
@@ -123,18 +122,6 @@ class PluginHost(object):
                     self.event_handlers[event_name].append(
                         method.__get__(plugin, plugin_class))
 
-            if hasattr(plugin, 'provides') and plugin.provides:
-                for feature_name in plugin.provides:
-                    if feature_name in registered:
-                        raise Exception('A plugin already provides %s' %
-                                        feature_name)
-                    for method_name in features[feature_name]:
-                        self.method_handlers[method_name] = getattr(plugin, method_name)
-                    debug('registered %s as a %s provider',
-                          plugin_class.__name__,
-                          feature_name)
-                    vim.register_provider(feature_name)
-                    registered.add(feature_name)
             self.installed_plugins.append(plugin)
 
 

@@ -11,13 +11,18 @@ class ScriptHost(object):
     python code similar to the one provided by vim-python bindings.
     """
     def __init__(self, vim):
-        self.provides = ['python']
         self.vim = vim
         # context where all code will run
         self.module = new_module('__main__')
         vim.script_context = self.module
         # it seems some plugins assume 'sys' is already imported, so do it now
         exec('import sys', self.module.__dict__)
+        vim.register_provider('python', {
+            'execute': self.python_execute,
+            'execute_file': self.python_execute_file,
+            'eval': self.python_eval,
+            'do_range': self.python_do_range
+        })
 
     def python_execute(self, script):
         exec(script, self.module.__dict__)
