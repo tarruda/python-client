@@ -6,13 +6,16 @@ import logging
 import os
 
 from .api import DecodeHook, Nvim, SessionHook
+from .plugin import (Host, autocommand, command, encoding, function, plugin,
+                     rpc_export)
 from .msgpack_rpc import (socket_session, spawn_session, stdio_session,
                           tcp_session)
-from .plugins import PluginHost, ScriptHost
 
 
 __all__ = ('tcp_session', 'socket_session', 'stdio_session', 'spawn_session',
-           'start_host', 'DecodeHook', 'Nvim', 'SessionHook')
+           'start_host', 'autocommand', 'command', 'encoding', 'function',
+           'plugin', 'rpc_export', 'Host', 'DecodeHook', 'Nvim',
+           'SessionHook')
 
 
 def start_host(session=None):
@@ -48,9 +51,8 @@ def start_host(session=None):
         logger.setLevel(level)
     if not session:
         session = stdio_session()
-    nvim = Nvim.from_session(session)
-    with PluginHost(nvim, preloaded=[ScriptHost]) as host:
-        host.run()
+    host = Host(Nvim.from_session(session))
+    host.run()
 
 
 # Required for python 2.6
