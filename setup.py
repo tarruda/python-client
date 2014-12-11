@@ -4,6 +4,7 @@ import sys
 from setuptools import setup
 
 install_requires = [
+    'click>=2.0',
     'msgpack-python>=0.4.0',
 ]
 
@@ -24,6 +25,11 @@ setup(name='neovim',
       author_email='tpadilha84@gmail.com',
       license='MIT',
       packages=['neovim', 'neovim.api', 'neovim.msgpack_rpc',
-                'neovim.msgpack_rpc.event_loop', 'neovim.plugin'],
+                'neovim.msgpack_rpc.event_loop', 'neovim.plugin',
+                'neovim.ui'],
       install_requires=install_requires,
+      entry_points='''
+      [console_scripts]
+      pynvim=neovim.ui.cli:main
+      ''',
       zip_safe=False)
