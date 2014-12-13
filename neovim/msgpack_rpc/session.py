@@ -77,6 +77,19 @@ class Session(object):
             raise self.error_wrapper(err)
         return rv
 
+    def schedule(self, cb, interval=None, repeat=False):
+        """Wrapper around `AsyncSession.schedule`."""
+        def handler():
+            cb()
+            if repeat:
+                self._async_session.schedule(greenlet_wrapper, interval)
+
+        def greenlet_wrapper():
+            gr = greenlet.greenlet(handler)
+            gr.switch()
+
+        self._async_session.schedule(greenlet_wrapper, interval)
+
     def run(self, request_cb, notification_cb, setup_cb=None):
         """Run the event loop to receive requests and notifications from Nvim.
 

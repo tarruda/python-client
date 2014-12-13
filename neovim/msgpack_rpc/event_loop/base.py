@@ -115,6 +115,10 @@ class BaseEventLoop(object):
         debug("Sending '%s'", data)
         self._send(data)
 
+    def schedule(self, cb, interval):
+        """Schedule a function to be called after a millisecond interval."""
+        self._schedule(cb, interval)
+
     def threadsafe_call(self, fn):
         """Call a function in the event loop thread.
 

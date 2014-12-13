@@ -44,6 +44,10 @@ class AsyncSession(object):
         self._msgpack_stream.send([0, request_id, method, args])
         self._pending_requests[request_id] = response_cb
 
+    def schedule(self, cb, interval):
+        """Wrapper around `MsgpackStream.schedule`."""
+        self._msgpack_stream.schedule(cb, interval)
+
     def run(self, request_cb, notification_cb):
         """Run the event loop to receive requests and notifications from Nvim.
 

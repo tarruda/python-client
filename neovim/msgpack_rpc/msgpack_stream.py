@@ -36,6 +36,10 @@ class MsgpackStream(object):
         debug('sent %s', msg)
         self._event_loop.send(self._packer.pack(msg))
 
+    def schedule(self, cb, interval):
+        """Wrapper around `BaseEventLoop.schedule`."""
+        self._event_loop.schedule(cb, interval)
+
     def run(self, message_cb):
         """Run the event loop to receive messages from Nvim.
 

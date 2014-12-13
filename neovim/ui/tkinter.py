@@ -1,6 +1,5 @@
 """Neovim TKinter UI."""
 from Tkinter import Canvas, Tk
-from threading import Semaphore, Thread
 
 from tkFont import Font
 
@@ -32,37 +31,40 @@ class NvimTk(object):
         """Initialize with a Nvim instance."""
         self._nvim = nvim
         self._attrs = {}
-        self._redraw_arg = None
-        self._semaphore = Semaphore(0)
         self._canvas = None
+        self._handle_resize = False
         self._fg = '#000000'
         self._bg = '#ffffff'
 
     def run(self):
         """Start the UI."""
-        self._tk_setup()
-        t = Thread(target=self._nvim_event_loop)
-        t.daemon = True
-        t.start()
-        # wait for the msgpack-rpc event loop start
-        self._semaphore.acquire()
-        self._semaphore.release()
-        self._root.mainloop()
-
-    def _tk_setup(self):
         self._root = Tk()
-        self._root.bind('<<nvim_redraw>>', self._tk_nvim_redraw)
-        self._root.bind('<<nvim_detach>>', self._tk_nvim_detach)
         self._root.bind('<Key>', self._tk_key)
+        self._root.bind('<Configure>', self._tk_configure)
+        self._root.protocol("WM_DELETE_WINDOW",
+                            lambda: self._nvim.session.stop())
 
-    def _tk_nvim_redraw(self, *args):
-        update = self._redraw_arg
-        for update in update:
+        def setup_cb():
+            self._nvim.ui_attach(80, 24)
+            self._nvim.session.schedule(lambda: self._root.update(), 50, True)
+
+        self._nvim.session.run(self._nvim_request,
+                               self._nvim_notification,
+                               setup_cb)
+
+    def _nvim_request(self, method, args):
+        raise Exception('This UI does not implement any methods')
+
+    def _nvim_notification(self, method, args):
+        if method == 'redraw':
+            self._tk_nvim_redraw(args)
+
+    def _tk_nvim_redraw(self, updates):
+        for update in updates:
             handler = getattr(self, '_tk_nvim_' + update[0])
             for args in update[1:]:
                 handler(*args)
-        self._semaphore.release()
-        self._semaphore.release()
+        self._root.update_idletasks()
 
     def _tk_nvim_detach(self, *args):
         self._root.destroy()
@@ -182,16 +184,19 @@ class NvimTk(object):
     def _tk_nvim_update_bg(self, bg):
         self._bg = "#{0:0{1}x}".format(bg, 6)
 
+    def _tk_setup_fonts(self, size):
+        self._fnormal = Font(family='Monospace', size=size)
+        self._fbold = Font(family='Monospace', weight='bold', size=size)
+        self._fitalic = Font(family='Monospace', slant='italic', size=size)
+        self._fbolditalic = Font(family='Monospace', weight='bold',
+                                 slant='italic', size=size)
+        self._colsize = self._fnormal.measure('A')
+        self._rowsize = self._fnormal.metrics('linespace')
+
     def _tk_redraw_canvas(self, width, height):
         if self._canvas:
             self._canvas.destroy()
-        self._fnormal = Font(family='Monospace', size=13)
-        self._fbold = Font(family='Monospace', weight='bold', size=13)
-        self._fitalic = Font(family='Monospace', slant='italic', size=13)
-        self._fbolditalic = Font(family='Monospace', weight='bold',
-                                 slant='italic', size=13)
-        self._colsize = self._fnormal.measure('A')
-        self._rowsize = self._fnormal.metrics('linespace')
+        self._tk_setup_fonts(13)
         self._canvas = Canvas(self._root, width=self._colsize * width,
                               height=self._rowsize * height)
         # To make finding rows and columns fast, we store their ids in a index
@@ -205,6 +210,7 @@ class NvimTk(object):
         self._scroll_right = width - 1
         self._width, self._height = (width, height,)
         self._canvas.pack()
+        self._handle_resize = True
 
     def _tk_fill_region(self, top, bot, left, right):
         # Create cells in the bot->top/right->left order, which will make cells
@@ -271,26 +277,17 @@ class NvimTk(object):
         if special:
             send = '<' + send + '>'
         nvim = self._nvim
-        nvim.session.threadsafe_call(lambda: nvim.input(send))
+        nvim.session.schedule(lambda: nvim.input(send))
 
-    def _nvim_event_loop(self):
-        def setup_cb():
-            self._semaphore.release()
-            self._nvim.attach_ui(80, 24)
-        self._nvim.session.run(self._nvim_request,
-                               self._nvim_notification,
-                               setup_cb)
-        self._root.event_generate('<<nvim_detach>>', when='tail')
-
-    def _nvim_request(self, method, args):
-        raise Exception('This UI does not implement any methods')
-
-    def _nvim_notification(self, method, args):
-        if method == 'redraw':
-            self._redraw_arg = args
-            self._root.event_generate('<<nvim_redraw>>', when='tail')
-            self._semaphore.acquire()
-            self._semaphore.acquire()
+    def _tk_configure(self, event):
+        if not self._handle_resize:
+            return
+        width = event.width / self._colsize
+        height = event.height / self._rowsize
+        if self._width == width and self._height == height:
+            return
+        nvim = self._nvim
+        nvim.session.schedule(lambda: nvim.ui_try_resize(width, height))
 
 
 def _is_invalid_key(c):

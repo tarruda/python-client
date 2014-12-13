@@ -99,6 +99,12 @@ class AsyncioEventLoop(BaseEventLoop, asyncio.Protocol,
     def _send(self, data):
         self._transport.write(data)
 
+    def _schedule(self, cb, interval):
+        if interval is None:
+            self._loop.call_soon(cb)
+        else:
+            self._loop.call_later(interval / 1000.0, cb)
+
     def _run(self):
         while self._queued_data:
             self._on_data(self._queued_data.popleft())

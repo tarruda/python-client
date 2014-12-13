@@ -220,6 +220,10 @@ class SessionFilter(object):
         return walk(self._in, self._session.request(name, *args), self, name,
                     'out-request')
 
+    def schedule(self, cb, interval=None, repeat=False):
+        """Wrapper for Session.schedule."""
+        self._session.schedule(cb, interval, repeat)
+
     def run(self, request_cb, notification_cb, setup_cb=None):
         """Wrapper for Session.run."""
         def filter_request_cb(name, args):

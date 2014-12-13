@@ -1,8 +1,5 @@
 """CLI for the tkinter/curses UI provided by this package."""
-import StringIO
-import cProfile
 import click
-import pstats
 
 from .tkinter import NvimTk
 from .. import attach
@@ -17,8 +14,11 @@ def main(profile):
     """Entry point."""
     nvim = attach('child', argv=['nvim', '--embed'])
     ui = NvimTk(nvim)
-    do_profile = profile is not 'disable'
+    do_profile = profile != 'disable'
     if do_profile:
+        import StringIO
+        import cProfile
+        import pstats
         pr = cProfile.Profile()
         pr.enable()
     ui.run()

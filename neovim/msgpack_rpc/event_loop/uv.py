@@ -16,6 +16,7 @@ class UvEventLoop(BaseEventLoop):
         self._async = pyuv.Async(self._loop, self._on_async)
         self._connection_error = None
         self._error_stream = None
+        self._timer = None
         self._callbacks = deque()
 
     def _on_connect(self, stream, error):
@@ -91,6 +92,19 @@ class UvEventLoop(BaseEventLoop):
 
     def _send(self, data):
         self._write_stream.write(data, self._on_write)
+
+    def _schedule(self, cb, interval):
+        def callback(handle):
+            handle.stop()
+            handle.close()
+            cb()
+
+        if interval is None:
+            self._idle = pyuv.Idle(self._loop)
+            self._idle.start(callback)
+        else:
+            self._timer = pyuv.Timer(self._loop)
+            self._timer.start(callback, interval / 1000.0, 0)
 
     def _run(self):
         self._loop.run(pyuv.UV_RUN_DEFAULT)
