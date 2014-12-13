@@ -46,7 +46,7 @@ class NvimTk(object):
 
         def setup_cb():
             self._nvim.ui_attach(80, 24)
-            self._nvim.session.schedule(lambda: self._root.update(), 50, True)
+            self._nvim.session.schedule(lambda: self._root.update(), 25, True)
 
         self._nvim.session.run(self._nvim_request,
                                self._nvim_notification,
@@ -155,6 +155,10 @@ class NvimTk(object):
         self._tk_fill_region(fill_top, fill_bot, left, right)
 
     def _tk_nvim_highlight_set(self, attrs):
+        if 'foreground' in attrs:
+            attrs['foreground'] = '#{0:0{1}x}'.format(attrs['foreground'], 6)
+        if 'background' in attrs:
+            attrs['background'] = '#{0:0{1}x}'.format(attrs['background'], 6)
         self._attrs = attrs
 
     def _tk_nvim_put(self, data):
@@ -165,8 +169,8 @@ class NvimTk(object):
         if self._attrs.get('italic', False):
             font = self._fbolditalic if font == self._fbold else self._fitalic
         # colors
-        fg = "#{0:0{1}x}".format(self._attrs.get('foreground', self._fg), 6)
-        bg = "#{0:0{1}x}".format(self._attrs.get('background', self._bg), 6)
+        fg = self._attrs.get('foreground', self._fg)
+        bg = self._attrs.get('background', self._bg)
         # get the "text" and "rect" which correspond to the current cell
         rect, text = self._index[self._cursor_row][self._cursor_col]
         # update properties

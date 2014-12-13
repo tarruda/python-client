@@ -27,5 +27,5 @@ def main(ctx, profile):
         pr.disable()
         s = StringIO.StringIO()
         ps = pstats.Stats(pr, stream=s)
-        ps.strip_dirs().sort_stats(profile).print_stats(15)
+        ps.strip_dirs().sort_stats(profile).print_stats(30)
         print s.getvalue()
