@@ -5,14 +5,15 @@ from .tkinter import NvimTk
 from .. import attach
 
 
-@click.command()
+@click.command(context_settings=dict(allow_extra_args=True))
 @click.option('--profile',
               default='disable',
               type=click.Choice(['ncalls', 'tottime', 'percall', 'cumtime',
                                  'disable']))
-def main(profile):
+@click.pass_context
+def main(ctx, profile):
     """Entry point."""
-    nvim = attach('child', argv=['nvim', '--embed'])
+    nvim = attach('child', argv=['nvim', '--embed'] + ctx.args)
     ui = NvimTk(nvim)
     do_profile = profile != 'disable'
     if do_profile:
