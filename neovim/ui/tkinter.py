@@ -64,7 +64,6 @@ class NvimTk(object):
 
     def _tk_nvim_redraw(self, updates):
         for update in updates:
-            print update[0]
             handler = getattr(self, '_tk_nvim_' + update[0])
             for args in update[1:]:
                 handler(*args)
@@ -89,6 +88,7 @@ class NvimTk(object):
         self._tk_update_cursor()
 
     def _tk_nvim_cursor_on(self):
+        return
         if self._cursor:
             return
         cursor_rect = self._canvas.create_rectangle(0, 0, self._colsize,
