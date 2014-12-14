@@ -32,9 +32,12 @@ class NvimTk(object):
         self._nvim = nvim
         self._attrs = {}
         self._canvas = None
+        self._cursor = None
         self._handle_resize = False
         self._fg = '#000000'
         self._bg = '#ffffff'
+        self._cursor_fg = _invert_color(self._fg)
+        self._cursor_bg = _invert_color(self._bg)
 
     def run(self):
         """Start the UI."""
@@ -61,6 +64,7 @@ class NvimTk(object):
 
     def _tk_nvim_redraw(self, updates):
         for update in updates:
+            print update[0]
             handler = getattr(self, '_tk_nvim_' + update[0])
             for args in update[1:]:
                 handler(*args)
@@ -82,12 +86,27 @@ class NvimTk(object):
     def _tk_nvim_cursor_goto(self, row, col):
         self._cursor_row = row
         self._cursor_col = col
+        self._tk_update_cursor()
 
     def _tk_nvim_cursor_on(self):
-        pass
+        if self._cursor:
+            return
+        cursor_rect = self._canvas.create_rectangle(0, 0, self._colsize,
+                                                    self._rowsize,
+                                                    fill=self._cursor_bg,
+                                                    width=0)
+        cursor_text = self._canvas.create_text(0, 0, anchor='nw',
+                                               font=self._fnormal, width=1,
+                                               fill=self._cursor_fg, text=' ')
+        self._cursor = (cursor_rect, cursor_text,)
+        self._tk_update_cursor()
 
     def _tk_nvim_cursor_off(self):
-        pass
+        if not self._cursor:
+            return
+        self._canvas.delete(self._cursor[0])
+        self._canvas.delete(self._cursor[1])
+        self._cursor = None
 
     def _tk_nvim_mouse_on(self):
         pass
@@ -184,9 +203,11 @@ class NvimTk(object):
 
     def _tk_nvim_update_fg(self, fg):
         self._fg = "#{0:0{1}x}".format(fg, 6)
+        self._cursor_fg = _invert_color(self._fg)
 
     def _tk_nvim_update_bg(self, bg):
         self._bg = "#{0:0{1}x}".format(bg, 6)
+        self._cursor_bg = _invert_color(self._bg)
 
     def _tk_setup_fonts(self, size):
         self._fnormal = Font(family='Monospace', size=size)
@@ -234,7 +255,7 @@ class NvimTk(object):
                                                      fill=self._bg, width=0)
                 text = self._canvas.create_text(x1, y1, anchor='nw',
                                                 font=self._fnormal, width=1,
-                                                fill=self._fg, text=' ')
+                                                fill=self._bg, text=' ')
                 # update the index
                 row[colnum] = (rect, text,)
 
@@ -257,6 +278,31 @@ class NvimTk(object):
         x = col * self._colsize
         y = row * self._rowsize
         return x, y
+
+    def _tk_update_cursor(self):
+        if not self._cursor:
+            return
+        rect, text = self._index[self._cursor_row][self._cursor_col]
+        x1, y1, x2, y2 = self._canvas.coords(rect)[:4]
+        current_fg = self._canvas.itemcget(text, 'fill')
+        current_bg = self._canvas.itemcget(rect, 'fill')
+        # update cursor text/font
+        cursor_rect, cursor_text = self._cursor
+        self._canvas.itemconfig(cursor_text,
+                                font=self._canvas.itemcget(text, 'font'),
+                                text=self._canvas.itemcget(text, 'text'))
+        # cells are erased by making fg == bg in a single tk call through
+        # the "fill" property which is common to both rects and texts. To
+        # avoid showing erased content, set the cursor text fill
+        # property to self._cursor_bg if the cell was erased
+        self._canvas.itemconfig(cursor_rect, fill=self._cursor_bg)
+        if current_fg == current_bg:
+            self._canvas.itemconfig(cursor_text, fill=self._cursor_bg)
+        else:
+            self._canvas.itemconfig(cursor_text, fill=self._cursor_fg)
+        # move the cursor
+        self._canvas.coords(cursor_rect, x1, y1, x2, y2)
+        self._canvas.coords(cursor_text, x1, y1)
 
     def _tk_key(self, event):
         if 0xffe1 <= event.keysym_num <= 0xffee:
@@ -299,3 +345,9 @@ def _is_invalid_key(c):
         return len(c.decode('utf-8')) != 1 or ord(c[0]) < 0x20
     except UnicodeDecodeError:
         return True
+
+
+def _invert_color(color):
+    r, g, b = [int(color[i:i+2], 16) for i in range(1, 7, 2)]
+    r, g, b = [255 - c for c in [r, g, b]]
+    return '#{0:0{1}x}'.format((r << 16) + (g << 8) + b, 6)
